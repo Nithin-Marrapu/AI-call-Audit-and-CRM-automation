@@ -1,0 +1,28 @@
+# Credentials
+.env
+.env.*
+!.env.example
+
+# Dependencies and Python environment
+node_modules/
+whisper-env/
+__pycache__/
+*.pyc
+
+# Recordings and customer data
+recordings/
+lead-activity.json
+processed-calls.json
+test-call.txt
+
+# Generated AI output
+src/recordings/
+*.log
+.DS_Store
+
+# Job database and per-call working files
+data/
+
+# Web app build output and dependencies
+web/node_modules/
+web/dist/

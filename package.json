@@ -1,0 +1,28 @@
+{
+  "name": "ai-call-audit",
+  "version": "1.0.0",
+  "description": "AI call audit pipeline: call recordings -> Whisper -> local LLM -> LeadSquared",
+  "type": "module",
+  "scripts": {
+    "app": "node src/server/index.js",
+    "web:build": "npm --prefix web install && npm --prefix web run build",
+    "web:dev": "npm --prefix web run dev",
+    "process": "node src/cli.js process",
+    "status": "node src/cli.js status",
+    "show": "node src/cli.js show",
+    "retry": "node src/cli.js retry",
+    "lsq:fields": "node scripts/leadFields.js",
+    "lsq:activities": "node scripts/activityTypes.js",
+    "test": "node --test",
+    "compare": "node scripts/compareTranscripts.js",
+    "lsq:inspect": "node scripts/inspectLead.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
