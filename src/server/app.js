@@ -14,6 +14,7 @@ import { topObjections } from "../objections.js";
 import { buildAuditNote } from "../stages/sync.js";
 import { DEMO_LEADS } from "../crm/demoData.js";
 import { JobQueue } from "./queue.js";
+import { Watcher } from "../watcher.js";
 import * as schema from "../config/schema.js";
 import { TRACKED_FIELDS } from "../accuracy.js";
 
@@ -154,8 +155,9 @@ export async function backfillLeadNames(store, { log = () => {} } = {}) {
   return filled;
 }
 
-export function createApp(store, { queue = new JobQueue() } = {}) {
+export function createApp(store, { queue = new JobQueue(), watcher = new Watcher(store, queue) } = {}) {
   const app = express();
+  app.locals.watcher = watcher;
   app.use(express.json({ limit: "1mb" }));
 
   const settings = () => loadSettings(store);
@@ -375,6 +377,31 @@ export function createApp(store, { queue = new JobQueue() } = {}) {
       res.status(202).json(job);
     }
   );
+
+  // ---------- watcher (audits new calls without a lead ID) ----------
+  app.get("/api/watcher", (req, res) => res.json(watcher.status()));
+
+  app.put("/api/watcher", (req, res) => {
+    if (req.body?.enabled === true && !createCrm(settings(), store).listCallsSince) {
+      throw new HttpError(400, `${createCrm(settings(), store).label} can't list new calls, so the watcher can't run on it.`);
+    }
+    try {
+      res.json(watcher.setConfig(req.body || {}));
+    } catch (error) {
+      throw new HttpError(400, error.message);
+    }
+  });
+
+  app.post("/api/watcher/check", async (req, res) => {
+    try {
+      const hours = req.body?.lookbackHours;
+      if (hours !== undefined && !(Number(hours) > 0 && Number(hours) <= 72)) throw new HttpError(400, "lookbackHours must be 1-72");
+      const result = await watcher.check(hours ? { lookbackHours: Number(hours) } : {});
+      res.json({ ...result, status: watcher.status() });
+    } catch (error) {
+      throw error instanceof HttpError ? error : new HttpError(502, error.message);
+    }
+  });
 
   app.get("/api/jobs", (req, res) => res.json({ jobs: queue.list() }));
 

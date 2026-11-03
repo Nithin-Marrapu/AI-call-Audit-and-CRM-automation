@@ -178,7 +178,7 @@ export function pickCall(calls, minSeconds) {
 export async function processLead(
   store,
   leadId,
-  { crm, force = false, minSeconds = config.minCallSeconds, reviewMode = false, log = defaultLog, signal }
+  { crm, force = false, minSeconds = config.minCallSeconds, reviewMode = false, log = defaultLog, signal, activityId }
 ) {
   checkStop(signal);
   log.step(`Finding recorded calls for lead ${leadId} in ${crm.label}`);
@@ -196,7 +196,10 @@ export async function processLead(
     );
   }
 
-  const chosen = pickCall(calls, minSeconds);
+  // The watcher asks for one specific call; otherwise take the newest long one.
+  const chosen = activityId
+    ? calls.find((c) => c.activityId === String(activityId) && Number(c.duration) >= minSeconds) ?? null
+    : pickCall(calls, minSeconds);
   const skipped = calls.filter(
     (c) => c !== chosen && (!chosen || new Date(c.createdOn) > new Date(chosen.createdOn))
   );

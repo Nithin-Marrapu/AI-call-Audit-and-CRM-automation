@@ -11,7 +11,9 @@ store.importLegacy(config.paths.legacyProcessedFile);
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 5050);
 
-createApp(store).listen(port, host, () => {
+const app = createApp(store);
+app.listen(port, host, () => {
   log.ok(`AI Call Audit running at http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);
+  app.locals.watcher.resume();
   backfillLeadNames(store, { log: log.info }).then((n) => n && log.ok(`Added names for ${n} lead(s)`));
 });

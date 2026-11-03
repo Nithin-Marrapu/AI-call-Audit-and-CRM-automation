@@ -104,6 +104,17 @@ export function createClient(creds = config.leadsquared) {
         },
         label: "Get lead activities"
       }),
+    // Activities of every lead with one event code, in a UTC time window
+    // ("YYYY-MM-DD HH:mm:ss"). Used by the watcher to find new calls.
+    getActivitiesByEvent: ({ activityEvent, from, to, page = 1, pageSize = 200 }) =>
+      r("ProspectActivity.svc/CustomActivity/RetrieveByActivityEvent", {
+        body: {
+          Parameter: { FromDate: from, ToDate: to, ActivityEvent: Number(activityEvent), RemoveEmptyValue: true },
+          Paging: { PageIndex: page, PageSize: pageSize },
+          Sorting: { ColumnName: "CreatedOn", Direction: 0 }
+        },
+        label: "Get activities by event"
+      }),
     updateLeadFields: (leadId, fields) =>
       r("LeadManagement.svc/Lead.Update", { query: { leadId }, body: fields, label: "Update lead" }),
     getLeadsMetadata: () =>

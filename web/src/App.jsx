@@ -5,6 +5,7 @@ import CallDetail from "./pages/CallDetail.jsx";
 import Process from "./pages/Process.jsx";
 import Settings from "./pages/Settings.jsx";
 import Accuracy from "./pages/Accuracy.jsx";
+import Agent from "./pages/Agent.jsx";
 
 export default function App() {
   const { data: health, error: down } = useApi("/health", { poll: 5000 });
@@ -12,6 +13,7 @@ export default function App() {
   const { data: crms } = useApi("/crms", { poll: 15000 });
   const review = calls?.counts?.review ?? 0;
   const active = crms?.crms.find((c) => c.id === crms.active);
+  const { data: watcher } = useApi("/watcher", { poll: 10000 });
 
   return (
     <div className="shell">
@@ -29,6 +31,10 @@ export default function App() {
           <NavLink to="/review">
             Review
             {review > 0 && <span className="badge" aria-label={`${review} waiting`}>{review}</span>}
+          </NavLink>
+          <NavLink to="/agent">
+            Agent
+            {watcher?.enabled && <span className="nav-on" aria-label="on">On</span>}
           </NavLink>
           <NavLink to="/process">Audit a lead</NavLink>
           <NavLink to="/accuracy">Accuracy</NavLink>
@@ -53,6 +59,7 @@ export default function App() {
           <Route path="/" element={<Calls />} />
           <Route path="/review" element={<Calls reviewOnly />} />
           <Route path="/calls/:id" element={<CallDetail />} />
+          <Route path="/agent" element={<Agent />} />
           <Route path="/process" element={<Process />} />
           <Route path="/accuracy" element={<Accuracy />} />
           <Route path="/settings" element={<Settings />} />

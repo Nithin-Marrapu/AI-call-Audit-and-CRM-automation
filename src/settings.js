@@ -61,7 +61,9 @@ export function publicSettings(settings, connectors) {
       Object.entries(creds).map(([k, v]) => [k, secretKeys.has(k) ? maskSecret(v) : v])
     );
   }
-  return { ...settings, credentials };
+  // Watcher state has its own endpoint.
+  const { watcher, watcherCursor, ...rest } = settings;
+  return { ...rest, credentials };
 }
 
 const ALLOWED = new Set(["crm", "credentials", "minCallMinutes", "reviewMode", "noteFormat", "fieldMapping"]);

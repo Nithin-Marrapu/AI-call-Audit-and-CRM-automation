@@ -15,7 +15,8 @@
     "lsq:activities": "node scripts/activityTypes.js",
     "test": "node --test",
     "compare": "node scripts/compareTranscripts.js",
-    "lsq:inspect": "node scripts/inspectLead.js"
+    "lsq:inspect": "node scripts/inspectLead.js",
+    "lsq:recent": "node scripts/recentCalls.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

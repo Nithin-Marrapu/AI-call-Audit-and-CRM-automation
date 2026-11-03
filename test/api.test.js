@@ -6,6 +6,8 @@ import { createApp } from "../src/server/app.js";
 import { config } from "../src/config/index.js";
 
 config.python = fileURLToPath(new URL("./fixtures/fake-llm.sh", import.meta.url));
+// Never use the LeadSquared keys from .env: tests must not call the real CRM.
+Object.assign(config.leadsquared, { host: "", accessKey: "", secretKey: "" });
 
 let server, base, store;
 

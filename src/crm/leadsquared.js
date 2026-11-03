@@ -33,6 +33,28 @@ export async function fetchCallActivities(client, leadId) {
   return [...byId.values()];
 }
 
+// "YYYY-MM-DD HH:mm:ss" in UTC, the format LeadSquared uses.
+export const lsqDate = (d) => new Date(d).toISOString().slice(0, 19).replace("T", " ");
+
+// Phone calls on any lead between two times, for the watcher. Returns
+// only ids; the call details come from listRecordedCalls(leadId).
+export async function fetchCallsSince(client, from, to) {
+  const out = new Map();
+  for (const code of config.callEventCodes) {
+    for (let page = 1; page <= MAX_PAGES * 2; page++) {
+      const result = await client.getActivitiesByEvent({ activityEvent: code, from: lsqDate(from), to: lsqDate(to), page, pageSize: ROWS });
+      const rows = result?.List || [];
+      for (const a of rows) {
+        const activityId = String(a.ProspectActivityId ?? a.Id ?? "");
+        const leadId = String(a.RelatedProspectId ?? a.ProspectId ?? "");
+        if (activityId && leadId) out.set(activityId, { activityId, leadId, createdOn: a.CreatedOn ?? null });
+      }
+      if (rows.length < ROWS) break;
+    }
+  }
+  return [...out.values()];
+}
+
 export const leadsquared = {
   id: "leadsquared",
   label: "LeadSquared",
@@ -61,6 +83,8 @@ export const leadsquared = {
         Object.defineProperty(calls, "summary", { value: countCalls(activities) });
         return calls;
       },
+
+      listCallsSince: (from, to) => fetchCallsSince(client, from, to),
 
       fetchRecording: (call, destination, opts) => downloadRecording(call.resourceUrl, destination, opts),
 

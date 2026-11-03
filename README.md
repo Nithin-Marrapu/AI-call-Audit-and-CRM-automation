@@ -21,6 +21,9 @@ CRM call activity ─► download ─► clean audio ─► Whisper ─► Qwen3
 
 **Highlights**
 
+- **Agent mode**: watches the CRM for new recorded calls and audits the long ones by
+  itself, no lead IDs to paste (checks every few minutes, waits for late recordings,
+  never audits a call twice)
 - Runs fully on a Mac (Whisper large-v3-turbo + Qwen3 via MLX): call audio never leaves the machine
 - CRM connector layer: LeadSquared today, Demo CRM for trying it out, one file per new CRM
 - Hallucination checks: quotes must appear word for word in the transcript; business
@@ -31,7 +34,7 @@ CRM call activity ─► download ─► clean audio ─► Whisper ─► Qwen3
 - Only calls of 7+ minutes are audited (configurable): short calls rarely show intent
 - Web app: calls list with search/filters/CSV export, synced audio player, upload a
   recording, live progress with stop/resume, top objections, settings with field mapping
-- 53 tests: units, API end to end, a fake LeadSquared, stop/resume and progress
+- 61 tests: units, API end to end, a fake LeadSquared, stop/resume and progress
 
 ## Try it without a CRM
 
@@ -69,6 +72,8 @@ npm run app           # open http://127.0.0.1:5050
   status; search transcripts and notes, filter by interest and period, export to CSV
 - **Review**: check the AI note against the transcript (click a line to play the
   recording from there), edit, approve or reject
+- **Agent**: turn on the watcher; it finds new calls of 7+ minutes and audits them,
+  and shows what it did today
 - **Audit a lead**: run the pipeline on a lead and watch its progress, or
   **upload a recording** (mp3/wav/m4a/ogg) to audit a call that isn't in a CRM;
   optionally link it to a CRM lead to send the note there
@@ -98,6 +103,7 @@ Helpers for configuring field mappings:
 ```bash
 npm run lsq:fields -- experience     # find LeadSquared schema names
 npm run lsq:activities               # list activity types / event codes
+npm run lsq:recent -- 120            # calls on any lead in the last 120 min (what the agent sees)
 ```
 
 ## How it works

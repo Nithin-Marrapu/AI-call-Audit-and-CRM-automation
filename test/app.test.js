@@ -11,6 +11,8 @@ import { config } from "../src/config/index.js";
 
 // Tests must never run the real local models.
 config.python = "/nonexistent/python";
+// Never use the LeadSquared keys from .env: tests must not call the real CRM.
+Object.assign(config.leadsquared, { host: "", accessKey: "", secretKey: "" });
 
 const quietLog = { step() {}, ok() {}, info() {}, error() {} };
 
