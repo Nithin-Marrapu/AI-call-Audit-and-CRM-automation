@@ -14,7 +14,8 @@ import { topObjections } from "../objections.js";
 import { buildAuditNote } from "../stages/sync.js";
 import { DEMO_LEADS } from "../crm/demoData.js";
 import { JobQueue } from "./queue.js";
-import { Watcher } from "../watcher.js";
+import { Watcher, dispositionConfig } from "../watcher.js";
+import { OUTCOMES, OUTCOME_TEXT, resolveOutcome } from "../disposition.js";
 import * as schema from "../config/schema.js";
 import { TRACKED_FIELDS } from "../accuracy.js";
 
@@ -400,6 +401,45 @@ export function createApp(store, { queue = new JobQueue(), watcher = new Watcher
       res.json({ ...result, status: watcher.status() });
     } catch (error) {
       throw error instanceof HttpError ? error : new HttpError(502, error.message);
+    }
+  });
+
+  // ---------- call outcomes ("Phone Answered") ----------
+  app.get("/api/outcomes", (req, res) => {
+    const state = req.query.state ? String(req.query.state) : undefined;
+    res.json({
+      config: dispositionConfig(settings()),
+      labels: OUTCOME_TEXT,
+      counts: watcher.dispositions.counts(),
+      items: watcher.dispositions.list({ state, limit: Math.min(Number(req.query.limit) || 50, 200) })
+    });
+  });
+
+  app.put("/api/outcomes/config", (req, res) => {
+    const cur = dispositionConfig(settings());
+    const b = req.body || {};
+    const next = { ...cur };
+    if (b.enabled !== undefined) next.enabled = b.enabled === true;
+    if (b.field !== undefined) {
+      if (!/^[A-Za-z][\w]*$/.test(String(b.field))) throw new HttpError(400, "field must be a CRM field name like mx_Phone_Answered");
+      next.field = String(b.field);
+    }
+    if (b.values !== undefined) {
+      for (const k of OUTCOMES) if (b.values[k] !== undefined) next.values = { ...next.values, [k]: String(b.values[k]).trim() };
+      if (OUTCOMES.some((k) => !next.values[k])) throw new HttpError(400, "Every outcome needs a value");
+    }
+    store.saveSettings({ disposition: next });
+    res.json(dispositionConfig(settings()));
+  });
+
+  app.post("/api/outcomes/:id", async (req, res) => {
+    const d = watcher.dispositions.get(req.params.id);
+    if (!d) throw new HttpError(404, "No outcome for this call");
+    try {
+      const crm = createCrmForJob(settings(), store, { crm: settings().crm });
+      res.json(await resolveOutcome(watcher.dispositions, crm, dispositionConfig(settings()), req.params.id, String(req.body?.outcome || "")));
+    } catch (error) {
+      throw new HttpError(400, error.message);
     }
   });
 

@@ -62,7 +62,7 @@ export function publicSettings(settings, connectors) {
     );
   }
   // Watcher state has its own endpoint.
-  const { watcher, watcherCursor, ...rest } = settings;
+  const { watcher, watcherCursor, disposition, ...rest } = settings;
   return { ...rest, credentials };
 }
 

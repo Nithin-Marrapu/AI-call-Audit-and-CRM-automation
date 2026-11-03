@@ -21,7 +21,7 @@ function fakeCrm({ recent = [], recorded = {} } = {}) {
         return recent;
       },
       async listRecordedCalls(leadId) {
-        return recorded[leadId] || [];
+        return (recorded[leadId] || []).map((c) => ({ resourceUrl: "https://rec/x.mp3", ...c }));
       }
     }
   };

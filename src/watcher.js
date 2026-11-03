@@ -1,6 +1,7 @@
 import { createCrm } from "./crm/index.js";
 import { loadSettings } from "./settings.js";
 import { processLead } from "./pipeline.js";
+import { DISPOSITION_DEFAULTS, DispositionStore, OUTCOME_TEXT, applyOutcome, decideOutcome } from "./disposition.js";
 
 // The watcher finds new recorded calls on its own, so nobody has to
 // paste a lead ID. Every few minutes it asks the CRM for phone calls
@@ -20,6 +21,12 @@ const MAX_LOOKBACK_HOURS = 72;
 // Each audit takes a minute or two, so one check queues at most this many.
 const MAX_QUEUE_PER_CHECK = 10;
 
+export const dispositionConfig = (settings) => ({
+  ...DISPOSITION_DEFAULTS,
+  ...(settings.disposition || {}),
+  values: { ...DISPOSITION_DEFAULTS.values, ...(settings.disposition?.values || {}) }
+});
+
 export const WATCHER_DEFAULTS = { enabled: false, intervalMinutes: 3 };
 
 const parseUtc = (v) => (v ? Date.parse(String(v).replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? "" : "Z")) : NaN);
@@ -27,6 +34,7 @@ const parseUtc = (v) => (v ? Date.parse(String(v).replace(" ", "T") + (/[zZ]|[+-
 export class Watcher {
   constructor(store, queue, { now = () => Date.now(), crmFor = (s) => createCrm(s, store) } = {}) {
     this.store = store;
+    this.dispositions = new DispositionStore(store.db);
     this.queue = queue;
     this.now = now;
     this.crmFor = crmFor;
@@ -37,7 +45,7 @@ export class Watcher {
     this.lastCheck = null;
     this.lastError = null;
     this.day = null;
-    this.today = { checks: 0, found: 0, queued: 0, short: 0, noRecording: 0, already: 0 };
+    this.today = { checks: 0, found: 0, queued: 0, short: 0, noRecording: 0, already: 0, outcomes: 0, pending: 0 };
   }
 
   config() {
@@ -96,7 +104,7 @@ export class Watcher {
     const day = new Date(this.now()).toISOString().slice(0, 10);
     if (day !== this.day) {
       this.day = day;
-      this.today = { checks: 0, found: 0, queued: 0, short: 0, noRecording: 0, already: 0 };
+      this.today = { checks: 0, found: 0, queued: 0, short: 0, noRecording: 0, already: 0, outcomes: 0, pending: 0 };
     }
     this.today[key] += n;
   }
@@ -130,21 +138,31 @@ export class Watcher {
 
       const queued = [];
       let left = 0;
+      const dcfg = dispositionConfig(settings);
       for (const [leadId, items] of byLead) {
-        const calls = await crm.listRecordedCalls(leadId);
+        // All calls, answered or not (unanswered ones have no recording).
+        const calls = crm.listCalls ? await crm.listCalls(leadId) : await crm.listRecordedCalls(leadId);
+        let leadName;
+        const name = async () => (leadName ??= (await crm.getLeadName?.(leadId).catch(() => null)) ?? null);
+
         for (const item of items) {
           const call = calls.find((c) => c.activityId === item.activityId);
           const age = to - (parseUtc(item.createdOn) || to);
-          if (this.store.get(item.activityId)) {
+          const job = this.store.get(item.activityId);
+
+          if (job) {
             this.decide(item, "already");
-          } else if (!call) {
-            // No recording yet: look again next time, give up after a while.
-            if (age > RECORDING_WAIT_MS) {
-              this.decide(item, "noRecording");
-              this.event("skip", "No recording", { leadId });
-            }
+            await this.outcome(crm, dcfg, { ...item, ...call }, { analysis: job.finalAnalysis ?? job.analysis, leadName: job.leadName });
+          } else if (!call || !call.resourceUrl) {
+            // No recording: an unanswered call never gets one; an answered
+            // call's recording can arrive late, so wait for it a while.
+            const waiting = call ? decideOutcome(call).outcome === "answered" : true;
+            if (waiting && age <= RECORDING_WAIT_MS) continue;
+            this.decide(item, "noRecording");
+            if (call) await this.outcome(crm, dcfg, call, { leadName: await name() });
           } else if (Number(call.duration) < minSeconds) {
             this.decide(item, "short");
+            await this.outcome(crm, dcfg, call, { leadName: await name() });
           } else if (queued.length >= MAX_QUEUE_PER_CHECK) {
             left++; // not marked seen: the next check picks it up
           } else {
@@ -169,6 +187,26 @@ export class Watcher {
     }
   }
 
+  // Fills the lead's call outcome (e.g. "Phone Answered") for one call.
+  async outcome(crm, dcfg, call, extra) {
+    if (!call?.leadId) return null;
+    // Switched off: the decision is still recorded (as a dry run) but
+    // nothing is written to the CRM.
+    const d = await applyOutcome(this.dispositions, crm, dcfg, call, extra);
+    if (!dcfg.enabled) return d;
+    const who = d.leadName || `lead ${String(call.leadId).slice(0, 8)}`;
+    if (d.state === "written" && d.updatedAt === d.decidedAt) {
+      this.count("outcomes");
+      this.event("outcome", `${who}: ${dcfg.field} set to "${d.value}"`, { leadId: call.leadId });
+    } else if (d.state === "pending" && d.updatedAt === d.decidedAt) {
+      this.count("pending");
+      this.event("pending", `${who}: unsure (${d.reason}), waiting for you`, { leadId: call.leadId });
+    } else if (d.state === "failed") {
+      this.event("error", `${who}: couldn't set ${dcfg.field}: ${d.error}`, { leadId: call.leadId });
+    }
+    return d;
+  }
+
   decide(item, outcome) {
     this.seen.set(item.activityId, this.now());
     this.count(outcome);
@@ -186,6 +224,12 @@ export class Watcher {
         signal
       });
       if (done) job.label = `Auto: ${done.leadName || label.slice(6)}`;
+      // After the audit, the outcome can use what the AI heard.
+      const fresh = this.store.get(call.activityId);
+      await this.outcome(crm, dispositionConfig(loadSettings(this.store)), call, {
+        analysis: fresh?.finalAnalysis ?? fresh?.analysis,
+        leadName: fresh?.leadName
+      }).catch(() => {});
       return done ? { activityId: done.activityId, status: done.status } : null;
     });
     this.event("queued", `Queued a ${Math.round(Number(call.duration) / 60)} min call`, {

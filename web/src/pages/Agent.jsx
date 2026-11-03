@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
 import { useApi } from "../hooks.js";
-import { when } from "../format.js";
+import { duration, when } from "../format.js";
 import { ErrorNote } from "../components/bits.jsx";
 
 const ago = (iso) => {
@@ -18,6 +18,159 @@ const inMin = (iso) => {
   const s = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
   return s <= 30 ? "in a moment" : `in ${Math.ceil(s / 60)} min`;
 };
+
+
+const STATE_TEXT = {
+  written: "Written",
+  same: "Already set",
+  kept: "Kept your value",
+  failed: "Failed",
+  skipped: "Skipped",
+  off: "Would write (auto-fill is off)"
+};
+
+// Fills the lead's call outcome (LeadSquared "Phone Answered") after each
+// call. Sure answers are written; unsure ones wait here for a person.
+function Outcomes() {
+  const { data, reload, setData } = useApi("/outcomes", { poll: 6000 });
+  const { data: recent, reload: reloadRecent } = useApi("/outcomes?limit=15", { poll: 6000 });
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const cfg = data?.config;
+  const pending = (data?.items || []).filter((d) => d.state === "pending");
+  const done = (recent?.items || []).filter((d) => d.state !== "pending");
+
+  async function saveConfig(update) {
+    setError(null);
+    try {
+      const config = await api.put("/outcomes/config", update);
+      setData((d) => ({ ...d, config }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function resolve(id, outcome) {
+    setBusy(id);
+    setError(null);
+    try {
+      await api.post(`/outcomes/${encodeURIComponent(id)}`, { outcome });
+      reload();
+      reloadRecent();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!cfg) return null;
+  const label = (k) => cfg.values[k];
+
+  return (
+    <section className="outcomes" aria-labelledby="out-h">
+      <div className="outcomes-head">
+        <div>
+          <h2 id="out-h" className="section-title">Call outcome</h2>
+          <p className="sub">
+            Fills <b>{cfg.field}</b> on the lead after every call: {label("answered")} / {label("rnr")} /{" "}
+            {label("invalid")}. Sure answers are written; unsure ones wait below for you. A value someone already chose
+            is never replaced, except {label("rnr")} becoming {label("answered")}.
+          </p>
+        </div>
+        <label className="inline-check">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => saveConfig({ enabled: e.target.checked })} />
+          Fill it automatically
+        </label>
+      </div>
+
+      <button type="button" className="btn-quiet" onClick={() => setEditing((v) => !v)}>
+        {editing ? "Hide field settings" : "Field settings"}
+      </button>
+      {editing && (
+        <form
+          className="outcome-fields"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            saveConfig({ field: f.get("field"), values: { answered: f.get("answered"), rnr: f.get("rnr"), invalid: f.get("invalid") } });
+          }}
+        >
+          {[["field", "CRM field", cfg.field], ["answered", "Answered", label("answered")], ["rnr", "Not answered", label("rnr")], ["invalid", "Number does not exist", label("invalid")]].map(([name, text, value]) => (
+            <div className="field" key={name}>
+              <label htmlFor={`of-${name}`}>{text}</label>
+              <input id={`of-${name}`} name={name} defaultValue={value} spellCheck="false" />
+            </div>
+          ))}
+          <button className="btn">Save</button>
+        </form>
+      )}
+
+      <ErrorNote>{error}</ErrorNote>
+
+      <h3 className="outcomes-sub">Waiting for you {pending.length > 0 && <span className="tab-count">{pending.length}</span>}</h3>
+      {pending.length === 0 ? (
+        <p className="sub">Nothing unsure right now.</p>
+      ) : (
+        <ul className="outcome-list">
+          {pending.map((d) => (
+            <li key={d.activityId} className="outcome-item">
+              <div>
+                <b>{d.leadName || <span className="mono-id">{d.leadId.slice(0, 8)}</span>}</b>
+                <span className="muted"> · {when(d.createdOn)} · {duration(d.duration)}</span>
+                <p className="sub">{d.reason}</p>
+              </div>
+              <div className="outcome-actions">
+                {["answered", "rnr", "invalid"].map((k) => (
+                  <button key={k} type="button" className={`btn btn-small ${d.outcome === k ? "btn-primary" : ""}`} disabled={busy === d.activityId} onClick={() => resolve(d.activityId, k)}>
+                    {label(k)}
+                  </button>
+                ))}
+                <button type="button" className="btn-quiet" disabled={busy === d.activityId} onClick={() => resolve(d.activityId, "skip")}>
+                  Skip
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {done.length > 0 && (
+        <>
+          <h3 className="outcomes-sub">Recent</h3>
+          <table className="calls outcome-table">
+            <thead>
+              <tr>
+                <th scope="col">Lead</th>
+                <th scope="col">Call</th>
+                <th scope="col">Outcome</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {done.map((d) => (
+                <tr key={d.activityId}>
+                  <td>{d.leadName || <span className="mono-id">{d.leadId.slice(0, 8)}</span>}</td>
+                  <td className="nowrap">
+                    {when(d.createdOn)}
+                    <span className="sub">{duration(d.duration)}{d.dialerStatus ? ` · ${d.dialerStatus}` : ""}</span>
+                  </td>
+                  <td>{d.outcome ? label(d.outcome) : "–"}{d.byPerson && <span className="sub">chosen by you</span>}</td>
+                  <td>
+                    {STATE_TEXT[d.state] || d.state}
+                    {d.state === "kept" && d.previous && <span className="sub">lead has "{d.previous}"</span>}
+                    {d.state === "failed" && <span className="sub error-text">{d.error}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
+  );
+}
 
 // The watcher: finds new recorded calls in the CRM by itself and audits
 // the long ones, so nobody pastes a lead ID.
@@ -150,10 +303,15 @@ export default function Agent() {
             <b className="big">{t.short ?? 0}</b> under {min} min, skipped
           </p>
           <p>
-            <b className="big">{t.noRecording ?? 0}</b> no recording
+            <b className="big">{t.outcomes ?? 0}</b> outcomes filled
+          </p>
+          <p>
+            <b className="big">{t.pending ?? 0}</b> unsure, sent to you
           </p>
         </div>
       </section>
+
+      <Outcomes />
 
       <section aria-labelledby="ev-h">
         <h2 id="ev-h" className="section-title">

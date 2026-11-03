@@ -1,6 +1,6 @@
 import { createClient } from "../clients/leadsquared.js";
 import { config } from "../config/index.js";
-import { countCalls, extractRecordedCalls } from "../stages/discover.js";
+import { countCalls, extractCalls, extractRecordedCalls } from "../stages/discover.js";
 import { downloadRecording } from "../stages/download.js";
 
 const ROWS = 200;
@@ -84,7 +84,18 @@ export const leadsquared = {
         return calls;
       },
 
+      // Every call on the lead, including unanswered ones (no recording).
+      async listCalls(leadId) {
+        return extractCalls(await fetchCallActivities(client, leadId), leadId);
+      },
+
       listCallsSince: (from, to) => fetchCallsSince(client, from, to),
+
+      async getLeadValue(leadId, field) {
+        const [lead] = (await client.getLeadById(leadId)) || [];
+        if (!lead) throw new Error("Lead not found");
+        return lead[field] ?? null;
+      },
 
       fetchRecording: (call, destination, opts) => downloadRecording(call.resourceUrl, destination, opts),
 

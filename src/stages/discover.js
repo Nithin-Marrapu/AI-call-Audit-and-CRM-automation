@@ -9,8 +9,9 @@ export function getDataValue(activity, key) {
 
 const isCall = (activity) => config.callEventCodes.includes(String(activity.EventCode));
 
-// Turns raw LeadSquared activities into recorded calls, newest first.
-export function extractRecordedCalls(activities, leadId) {
+// Every phone call on a lead (answered or not), newest first. Unanswered
+// calls have no recording; their status still tells us "RNR".
+export function extractCalls(activities, leadId) {
   return (activities || [])
     .filter(isCall)
     .map((activity) => ({
@@ -21,10 +22,15 @@ export function extractRecordedCalls(activities, leadId) {
       resourceUrl: getDataValue(activity, "ResourceUrl"),
       duration: getDataValue(activity, "Duration"),
       callType: getDataValue(activity, "CallType"),
-      direction: String(activity.EventCode) === "21" ? "inbound" : "outbound"
+      direction: String(activity.EventCode) === "21" ? "inbound" : "outbound",
+      dialerStatus: activity.ActivityFields?.Status ?? getDataValue(activity, "Status") ?? activity.Status ?? null
     }))
-    .filter((call) => call.resourceUrl)
     .sort((a, b) => new Date(b.createdOn) - new Date(a.createdOn));
+}
+
+// Calls with a recording, newest first.
+export function extractRecordedCalls(activities, leadId) {
+  return extractCalls(activities, leadId).filter((call) => call.resourceUrl);
 }
 
 // How many phone calls a lead has, with and without a recording link,
